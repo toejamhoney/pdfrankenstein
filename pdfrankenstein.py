@@ -15,7 +15,7 @@ class ArgParser(object):
     def __init__(self):
         self.parser = argparse.ArgumentParser()
         self.parser.add_argument('pdf_in', help="PDF input for analysis")
-        self.parser.add_argument('-o', '--out', default='t-hash-'+time.strftime("%Y-%m-%d_%H-%M-%S")+'.txt', help="Analysis output filename. Default to STDOUT")
+        self.parser.add_argument('-o', '--out', default='t-hash-'+time.strftime("%Y-%m-%d_%H-%M-%S")+'.txt', help="Analysis output filename. Default to timestamped file in CWD")
         self.parser.add_argument('-d', '--debug', action='store_true', default=False, help="Print debugging messages")
         self.parser.add_argument('-v', '--verbose', action='store_true', default=False, help="Spam the terminal")
 
@@ -126,7 +126,7 @@ class Stasher(multiprocessing.Process):
                 t_hash = self.qin.get()
                 if not t_hash:
                     break
-                fout.write(' '.join(t_hash) + '\n')
+                fout.write('\t'.join(t_hash) + '\n')
                 self.counter.inc()
             fout.close()
 
@@ -156,11 +156,11 @@ class ProgressBar(object):
         cnt = self.counter.value()
         while cnt < self.max_cnt:
             progress = cnt * 1.0 / self.max_cnt * 100
-            sys.stdout.write('Approx progress: %.2f\r' % progress)
+            sys.stdout.write('Approx progress: %.2f%%\r' % progress)
             sys.stdout.flush()
             cnt = self.counter.value()
         progress = cnt * 1.0 / self.max_cnt * 100
-        sys.stdout.write('Approx progress: %.2f ' % progress)
+        sys.stdout.write('Approx progress: %.2f%% ' % progress)
 
 if __name__ == '__main__':
     pdfs = []
@@ -176,17 +176,16 @@ if __name__ == '__main__':
     hashers = [ Hasher(jobs, results, job_counter) for cnt in xrange(num_procs) ]
     stasher = Stasher(results, args.out, result_counter)
 
-    print num_procs, 'processes analyzing', 
 
     if os.path.isdir(args.pdf_in):
         dir_name = os.path.join(args.pdf_in, '*')
         pdfs = glob.glob(dir_name)
-        print len(pdfs), 'samples in directory:', dir_name
+        print num_procs, 'processes analyzing', len(pdfs), 'samples in directory:', dir_name
     elif os.path.exists(args.pdf_in):
-        print 'Processing file:', args.pdf_in
         pdfs.append(args.pdf_in)
+        print num_procs, 'processes analyzing file:', args.pdf_in
     else:
-        print 'Unable to find PDF file/directory:', pdf_in
+        print 'Unable to find PDF file/directory:', args.pdf_in
         sys.exit(1)
 
     for hasher in hashers:
