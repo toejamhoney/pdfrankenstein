@@ -1,0 +1,107 @@
+K 25
+svn:wc:ra_dav:version-url
+V 23
+/svn/!svn/ver/229/trunk
+END
+PDFUtils.py
+K 25
+svn:wc:ra_dav:version-url
+V 35
+/svn/!svn/ver/221/trunk/PDFUtils.py
+END
+PDFConsole.py
+K 25
+svn:wc:ra_dav:version-url
+V 37
+/svn/!svn/ver/225/trunk/PDFConsole.py
+END
+AUTHORS
+K 25
+svn:wc:ra_dav:version-url
+V 30
+/svn/!svn/ver/87/trunk/AUTHORS
+END
+CHANGELOG
+K 25
+svn:wc:ra_dav:version-url
+V 33
+/svn/!svn/ver/155/trunk/CHANGELOG
+END
+PDFFilters.py
+K 25
+svn:wc:ra_dav:version-url
+V 37
+/svn/!svn/ver/229/trunk/PDFFilters.py
+END
+peepdf.py
+K 25
+svn:wc:ra_dav:version-url
+V 33
+/svn/!svn/ver/229/trunk/peepdf.py
+END
+ccitt.py
+K 25
+svn:wc:ra_dav:version-url
+V 32
+/svn/!svn/ver/130/trunk/ccitt.py
+END
+README
+K 25
+svn:wc:ra_dav:version-url
+V 30
+/svn/!svn/ver/190/trunk/README
+END
+jjdecode.py
+K 25
+svn:wc:ra_dav:version-url
+V 35
+/svn/!svn/ver/215/trunk/jjdecode.py
+END
+aes.py
+K 25
+svn:wc:ra_dav:version-url
+V 30
+/svn/!svn/ver/212/trunk/aes.py
+END
+PDFCrypto.py
+K 25
+svn:wc:ra_dav:version-url
+V 36
+/svn/!svn/ver/212/trunk/PDFCrypto.py
+END
+lzw.py
+K 25
+svn:wc:ra_dav:version-url
+V 30
+/svn/!svn/ver/212/trunk/lzw.py
+END
+TODO
+K 25
+svn:wc:ra_dav:version-url
+V 28
+/svn/!svn/ver/158/trunk/TODO
+END
+JSAnalysis.py
+K 25
+svn:wc:ra_dav:version-url
+V 37
+/svn/!svn/ver/226/trunk/JSAnalysis.py
+END
+COPYING
+K 25
+svn:wc:ra_dav:version-url
+V 29
+/svn/!svn/ver/3/trunk/COPYING
+END
+PDFCore.py
+K 25
+svn:wc:ra_dav:version-url
+V 34
+/svn/!svn/ver/228/trunk/PDFCore.py
+END
+peepdf.dtd
+K 25
+svn:wc:ra_dav:version-url
+V 34
+/svn/!svn/ver/186/trunk/peepdf.dtd
+END

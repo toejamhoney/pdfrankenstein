@@ -1,0 +1,53 @@
+K 25
+svn:wc:ra_dav:version-url
+V 33
+/svn/!svn/ver/137/trunk/aespython
+END
+test_keys.py
+K 25
+svn:wc:ra_dav:version-url
+V 46
+/svn/!svn/ver/137/trunk/aespython/test_keys.py
+END
+ofb_mode.py
+K 25
+svn:wc:ra_dav:version-url
+V 45
+/svn/!svn/ver/137/trunk/aespython/ofb_mode.py
+END
+cbc_mode.py
+K 25
+svn:wc:ra_dav:version-url
+V 45
+/svn/!svn/ver/137/trunk/aespython/cbc_mode.py
+END
+cfb_mode.py
+K 25
+svn:wc:ra_dav:version-url
+V 45
+/svn/!svn/ver/137/trunk/aespython/cfb_mode.py
+END
+key_expander.py
+K 25
+svn:wc:ra_dav:version-url
+V 49
+/svn/!svn/ver/137/trunk/aespython/key_expander.py
+END
+__init__.py
+K 25
+svn:wc:ra_dav:version-url
+V 45
+/svn/!svn/ver/137/trunk/aespython/__init__.py
+END
+aes_tables.py
+K 25
+svn:wc:ra_dav:version-url
+V 47
+/svn/!svn/ver/137/trunk/aespython/aes_tables.py
+END
+aes_cipher.py
+K 25
+svn:wc:ra_dav:version-url
+V 47
+/svn/!svn/ver/137/trunk/aespython/aes_cipher.py
+END

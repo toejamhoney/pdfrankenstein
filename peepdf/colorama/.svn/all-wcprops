@@ -1,0 +1,47 @@
+K 25
+svn:wc:ra_dav:version-url
+V 31
+/svn/!svn/ver/12/trunk/colorama
+END
+ansi.py
+K 25
+svn:wc:ra_dav:version-url
+V 39
+/svn/!svn/ver/12/trunk/colorama/ansi.py
+END
+initialise.py
+K 25
+svn:wc:ra_dav:version-url
+V 45
+/svn/!svn/ver/12/trunk/colorama/initialise.py
+END
+__init__.py
+K 25
+svn:wc:ra_dav:version-url
+V 43
+/svn/!svn/ver/12/trunk/colorama/__init__.py
+END
+ansitowin32.py
+K 25
+svn:wc:ra_dav:version-url
+V 46
+/svn/!svn/ver/12/trunk/colorama/ansitowin32.py
+END
+win32.py
+K 25
+svn:wc:ra_dav:version-url
+V 40
+/svn/!svn/ver/12/trunk/colorama/win32.py
+END
+PKG-INFO
+K 25
+svn:wc:ra_dav:version-url
+V 40
+/svn/!svn/ver/12/trunk/colorama/PKG-INFO
+END
+winterm.py
+K 25
+svn:wc:ra_dav:version-url
+V 42
+/svn/!svn/ver/12/trunk/colorama/winterm.py
+END
