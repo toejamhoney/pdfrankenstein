@@ -41,9 +41,9 @@ class Hasher(multiprocessing.Process):
             pdf = self.qin.get()
             if not pdf:
                 break
-            t_hash = self.get_tree_hash(pdf)
+            t_hash, t_str = self.get_tree_hash(pdf)
             pdf_name = pdf.rstrip(os.path.sep).rpartition(os.path.sep)[2]
-            self.qout.put( (pdf_name, t_hash) )
+            self.qout.put( (pdf_name, t_hash, t_str) )
             self.counter.inc()
 
     def do_tree(self, pdfFile):
@@ -105,17 +105,17 @@ class Hasher(multiprocessing.Process):
     def get_tree_hash(self, pdf):
         tree_string = self.get_tree_string(pdf)
         tree_hash = md5.new(tree_string).hexdigest()
-        return tree_hash
+        return tree_hash, tree_string
 
 
 class Stasher(multiprocessing.Process):
 
-    def __init__(self, qin, filename, counter):
+    def __init__(self, qin, storage, counter):
         multiprocessing.Process.__init__(self)
         self.qin = qin
-        self.fname = filename
+        self.storage = StorageFactory().get_storage(storage)
         self.counter = counter
-
+    '''
     def run(self):
         try:
             fout = io.open(self.fname, 'wb')
@@ -129,7 +129,65 @@ class Stasher(multiprocessing.Process):
                 fout.write('\t'.join(t_hash) + '\n')
                 self.counter.inc()
             fout.close()
+    '''
+    def run(self):
+        self.storage.open()
+        while True:
+            t_hash = self.qin.get()
+            if not t_hash:
+                break
+            self.storage.store(t_hash)
+            self.counter.inc()
+        self.storage.close()
 
+
+class StorageFactory(object):
+
+    def get_storage(self, typ):
+        if typ == 'stdout':
+            return StdoutStorage()
+        if typ == 'db':
+            return DbStorage()
+        else:
+            return FileStorage()
+
+class Storage(object):
+
+    def __init__(self):
+        pass
+    def open(self):
+        pass
+    def store(self):
+        pass
+    def close(self):
+        pass
+
+class StdoutStorage(Storage):
+    def __init__(self):
+        pass
+ 
+class DbStorage(Storage):
+    
+    from db_mgmt import DBGateway
+    table = 'parsed_pdfs'
+    cols = ( 'pdfmd5', 'treemd5', 'tree' )
+    primary = 'pdfmd5'
+    
+    def __init__(self):
+        self.db = self.DBGateway()
+
+    def open(self):
+        self.db.create_table(self.table, cols=[ ' '.join([col, 'TEXT']) for col in self.cols], primary=self.primary)
+
+    def store(self, data_list):
+        self.db.insert(self.table, cols=self.cols, vals=data_list)
+    
+    def close(self):
+        self.db.disconnect()
+
+class FileStorage(Storage):
+    def __init__(self):
+        pass
 
 class Counter(object):
 
