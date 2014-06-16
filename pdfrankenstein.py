@@ -41,10 +41,40 @@ class Hasher(multiprocessing.Process):
             pdf = self.qin.get()
             if not pdf:
                 break
-            t_hash, t_str = self.get_tree_hash(pdf)
+            parsed_pdf = self.parse_pdf(pdf)
+            t_hash, t_str = self.get_tree_hash(parsed_pdf)
+            js = self.get_js(parsed_pdf)
             pdf_name = pdf.rstrip(os.path.sep).rpartition(os.path.sep)[2]
-            self.qout.put( (pdf_name, t_hash, t_str) )
+            self.qout.put( (pdf_name, t_hash, t_str, js) )
             self.counter.inc()
+
+    def parse_pdf(self, pdf):
+        retval, pdffile = PDFParser().parse(pdf, forceMode=True, manualAnalysis=True)
+        return pdffile
+
+    def get_js(self, pdf):
+        js = ''
+        for version in range(pdf.getUpdates()+1):
+            containingJS = pdf.body[version].getContainingJS()
+            if len(containingJS) > 0:
+                for obj_id in containingJS:
+                    js += self.do_js_code(obj_id, pdf)
+        return js
+
+    def get_tree_hash(self, pdf):
+        tree_string = self.do_tree(pdf)
+        tree_hash = md5.new(tree_string).hexdigest()
+        return tree_hash, tree_string
+
+    def do_js_code(self, obj_id, pdf):
+        consoleOutput = ''
+        obj_id = int(obj_id)
+        pdfobject = pdf.getObject(obj_id, None)
+        if pdfobject.containsJS():
+            jsCode = pdfobject.getJSCode()
+            for js in jsCode:
+                consoleOutput += js
+        return consoleOutput
 
     def do_tree(self, pdfFile):
         version = None
@@ -98,14 +128,6 @@ class Hasher(multiprocessing.Process):
                     return expandedNodes,output
         return expandedNodes,output
 
-    def get_tree_string(self, pdf):
-        retval, pdf = PDFParser().parse(pdf, forceMode=True, manualAnalysis=True)
-        return self.do_tree(pdf)
-
-    def get_tree_hash(self, pdf):
-        tree_string = self.get_tree_string(pdf)
-        tree_hash = md5.new(tree_string).hexdigest()
-        return tree_hash, tree_string
 
 
 class Stasher(multiprocessing.Process):
@@ -115,21 +137,7 @@ class Stasher(multiprocessing.Process):
         self.qin = qin
         self.storage = StorageFactory().get_storage(storage)
         self.counter = counter
-    '''
-    def run(self):
-        try:
-            fout = io.open(self.fname, 'wb')
-        except IOError as err:
-            print repr(err)
-        else:
-            while True:
-                t_hash = self.qin.get()
-                if not t_hash:
-                    break
-                fout.write('\t'.join(t_hash) + '\n')
-                self.counter.inc()
-            fout.close()
-    '''
+
     def run(self):
         self.storage.open()
         while True:
@@ -170,7 +178,7 @@ class DbStorage(Storage):
     
     from db_mgmt import DBGateway
     table = 'parsed_pdfs'
-    cols = ( 'pdfmd5', 'treemd5', 'tree' )
+    cols = ( 'pdfmd5', 'treemd5', 'tree', 'javascript' )
     primary = 'pdfmd5'
     
     def __init__(self):
