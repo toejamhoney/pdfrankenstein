@@ -41,8 +41,15 @@ class Hasher(multiprocessing.Process):
             pdf = self.qin.get()
             if not pdf:
                 break
-            t_hash = self.get_tree_hash(pdf)
+            retval, pdffile = PDFParser().parse(pdf, forceMode=True, manualAnalysis=True)
+            t_hash = self.get_tree_hash(pdffile)
+            for version in range(pdffile.getUpdates()+1):
+                containingJS = pdffile.body[version].getContainingJS()
+                if len(containingJS) > 0:
+                    for id in containingJS:
+                        js = self.do_js_code(id, pdffile)
             pdf_name = pdf.rstrip(os.path.sep).rpartition(os.path.sep)[2]
+            #self.qout.put( (pdf_name, t_hash, js) )
             self.qout.put( (pdf_name, t_hash) )
             self.counter.inc()
 
@@ -99,13 +106,24 @@ class Hasher(multiprocessing.Process):
         return expandedNodes,output
 
     def get_tree_string(self, pdf):
-        retval, pdf = PDFParser().parse(pdf, forceMode=True, manualAnalysis=True)
+        #retval, pdf = PDFParser().parse(pdf, forceMode=True, manualAnalysis=True)
         return self.do_tree(pdf)
 
     def get_tree_hash(self, pdf):
-        tree_string = self.get_tree_string(pdf)
+        tree_string = self.do_tree(pdf)
+        #tree_string = self.get_tree_string(pdf)
         tree_hash = md5.new(tree_string).hexdigest()
         return tree_hash
+
+    def do_js_code(self, id, pdf):
+        consoleOutput = ''
+        id = int(id)
+        object = pdf.getObject(id, None)
+        if object.containsJS():
+            jsCode = object.getJSCode()
+            for js in jsCode:
+                consoleOutput += js
+        return consoleOutput
 
 
 class Stasher(multiprocessing.Process):
