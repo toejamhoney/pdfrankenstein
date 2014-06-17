@@ -4,32 +4,105 @@ import md5
 import sys
 import glob
 import time
-import argparse
+import getopt
 import multiprocessing
 
 from  peepdf.PDFCore import PDFParser
 
+class ParserFactory(object):
+
+    def new_parser(self):
+        try:
+            #parser = ArgParser()
+            parser = GetOptParser()
+        except ImportError:
+            parser = GetOptParser()
+        finally:
+            return parser 
+
+class ParsedArgs(object):
+    '''
+    This is the namespace for our parsed arguments to keep dot access.
+    Otherwise we would create a dictionary with vars(args) in ArgParser,
+    or manually in GetOptParser. (6 and 1/2 dozen of the other.)
+
+    Defaults set here for GetOpt's shortcomings.
+    '''
+    pdf_in = None
+    out = 't-hash-{stamp}.txt'.format(stamp = time.strftime("%Y-%m-%d_%H-%M-%S"))
+    debug = False
+    verbose = False
 
 class ArgParser(object):
 
+    import argparse
+
     def __init__(self):
-        self.parser = argparse.ArgumentParser()
+        self.parser = self.argparse.ArgumentParser()
         self.parser.add_argument('pdf_in', help="PDF input for analysis")
-        self.parser.add_argument('-o', '--out', default='t-hash-'+time.strftime("%Y-%m-%d_%H-%M-%S")+'.txt', help="Analysis output filename. Default to timestamped file in CWD")
+        self.parser.add_argument('-o', '--out', default='t-hash-'+time.strftime("%Y-%m-%d_%H-%M-%S")+'.txt', help="Analysis output filename or type. Default to timestamped file in CWD. Options: 'db'||'stdout'||[filename]")
         self.parser.add_argument('-d', '--debug', action='store_true', default=False, help="Print debugging messages")
         self.parser.add_argument('-v', '--verbose', action='store_true', default=False, help="Spam the terminal")
 
     def parse(self):
+        '''
+        No need to pass anything; defaults to sys.argv (cli input)
+        '''
         try:
-            args = self.parser.parse_args()
+            parsed = ParsedArgs()
+            self.parser.parse_args(namespace=parsed)
         except Exception:
             self.parser.exit(status=0, message='Usage: pdfrankenstein.py <input pdf> [-o] [-d] [-v]\n')
         else:
-            return args
+            return parsed
 
+class GetOptParser(object):
+    '''
+    Necessary for outdated versions of Python. Versions that aren't even
+    updated, and won't even have src code security updates as of 2013.
+    '''
+    shorts = 'o:dv'
+    longs = [ 'out=', 'debug', 'verbose' ]
+
+    def parse(self):
+        parsed = ParsedArgs()
+        opts, remain = self._parse_cli()
+        parsed.pdf_in = remain[0]
+        for opt, arg in opts:
+            if opt in ('-o', '--out'):
+                '''
+                GetOpt can't recognize the difference between a missing value
+                for '-o' and the next flag: '-d', for example. This creates a
+                file called '-d' as output, and rm can't remove it since that
+                is a flag for rm.
+                '''
+                if arg[0].isalnum():
+                    parsed.out = arg
+                else:
+                    print 'Invalid output name. Using default:', parsed.out
+            elif opt in ('-d', '--debug'):
+                parsed.debug = True
+            elif opt in ('-v', '--verbose'):
+                parsed.verbose = True
+        return parsed 
+
+    def _parse_cli(self):
+        try:
+            o, r = getopt.gnu_getopt(sys.argv[1:], self.shorts, self.longs)
+        except IndexError:
+            print 'Usage: pdfrankenstein.py <input pdf> [-o value] [-d] [-v]'
+            sys.exit(1)
+        else:
+            if len(r) != 1:
+                print 'One PDF file or directory path required'
+                print 'Usage: pdfrankenstein.py <input pdf> [-o value] [-d] [-v]'
+                sys.exit(1)
+            return o, r
 
 class Hasher(multiprocessing.Process):
-
+    '''
+    Hashers generally make hashes of things
+    '''
     def __init__(self, qin, qout, counter):
         multiprocessing.Process.__init__(self)
         self.qin = qin
@@ -131,11 +204,14 @@ class Hasher(multiprocessing.Process):
 
 
 class Stasher(multiprocessing.Process):
-
+    '''
+    Stashers are the ant from the ant and the grashopper fable. They save
+    things up for winter in persistent storage.
+    '''
     def __init__(self, qin, storage, counter):
         multiprocessing.Process.__init__(self)
         self.qin = qin
-        self.storage = StorageFactory().get_storage(storage)
+        self.storage = StorageFactory().new_storage(storage)
         self.counter = counter
 
     def run(self):
@@ -151,13 +227,13 @@ class Stasher(multiprocessing.Process):
 
 class StorageFactory(object):
 
-    def get_storage(self, typ):
+    def new_storage(self, typ):
         if typ == 'stdout':
             return StdoutStorage()
         if typ == 'db':
             return DbStorage()
         else:
-            return FileStorage()
+            return FileStorage(typ)
 
 class Storage(object):
 
@@ -194,8 +270,31 @@ class DbStorage(Storage):
         self.db.disconnect()
 
 class FileStorage(Storage):
-    def __init__(self):
-        pass
+
+    def __init__(self, path):
+        self.path = path
+        try:
+            self.fd = open(path, 'wb')
+        except IOError as e:
+            print e
+            print 'Unable to create output. Exiting.'
+            sys.exit(1)
+        else:
+            self.fd.close()
+
+    def open(self):
+        self.fd = open(self.path, 'wb')
+
+    def store(self, data_list):
+        try:
+            self.fd.write('%s\n' % '\t'.join(data_list))
+        except IOError as e:
+            print e
+            print 'Unable to write to output file.'
+            sys.exit(1)
+
+    def close(self):
+        self.fd.close()
 
 class Counter(object):
 
@@ -230,7 +329,7 @@ class ProgressBar(object):
 
 if __name__ == '__main__':
     pdfs = []
-    args = ArgParser().parse()
+    args = ParserFactory().new_parser().parse()
 
     num_procs = multiprocessing.cpu_count() - 1
     jobs = multiprocessing.Queue()
@@ -253,6 +352,10 @@ if __name__ == '__main__':
     else:
         print 'Unable to find PDF file/directory:', args.pdf_in
         sys.exit(1)
+
+    if not len(pdfs) > 0:
+        print 'Empty sample set'
+        sys.exit(0)
 
     for hasher in hashers:
         hasher.start()
