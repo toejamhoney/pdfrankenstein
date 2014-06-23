@@ -117,6 +117,7 @@ class Hasher(multiprocessing.Process):
             parsed_pdf = self.parse_pdf(pdf)
             t_hash, t_str = self.get_tree_hash(parsed_pdf)
             js = self.get_js(parsed_pdf)
+            swf = self.get_swf(parsed_pdf)
             pdf_name = pdf.rstrip(os.path.sep).rpartition(os.path.sep)[2]
             self.qout.put( (pdf_name, t_hash, t_str, js) )
             self.counter.inc()
@@ -125,13 +126,22 @@ class Hasher(multiprocessing.Process):
         retval, pdffile = PDFParser().parse(pdf, forceMode=True, manualAnalysis=True)
         return pdffile
 
+    def get_swf(self, pdf):
+        swf = ''
+        for version in range(pdf.updates + 1):
+            for idx, obj in pdf.body[version].objects.items():
+                if obj.object.type == 'stream':
+                    stream_ident = obj.object.decodedStream[:3]
+                    if stream_ident in ['CWS', 'FWS']:
+                        swf += obj.object.decodedStream.strip()
+                        print swf
+        return swf
+
     def get_js(self, pdf):
         js = ''
-        for version in range(pdf.getUpdates()+1):
-            containingJS = pdf.body[version].getContainingJS()
-            if len(containingJS) > 0:
-                for obj_id in containingJS:
-                    js += self.do_js_code(obj_id, pdf)
+        for version in range(pdf.updates+1):
+            for obj_id in pdf.body[version].getContainingJS():
+                js += self.do_js_code(obj_id, pdf)
         return js
 
     def get_tree_hash(self, pdf):
@@ -368,7 +378,7 @@ if __name__ == '__main__':
     print 'Samples added to job queue'
 
     progress = ProgressBar(job_counter, len(pdfs))
-    progress.display()
+    #progress.display()
 
     for hasher in hashers:
         hasher.join()
@@ -377,7 +387,7 @@ if __name__ == '__main__':
     results.put(None) 
 
     progress = ProgressBar(result_counter, len(pdfs))
-    progress.display()
+    #progress.display()
 
     stasher.join()
     print 'Output complete'
