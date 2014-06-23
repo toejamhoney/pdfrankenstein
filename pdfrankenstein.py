@@ -1,10 +1,10 @@
 import io
 import os
-import md5
 import sys
 import glob
 import time
 import getopt
+import hashlib
 import multiprocessing
 
 from  peepdf.PDFCore import PDFParser
@@ -12,9 +12,9 @@ from  peepdf.PDFCore import PDFParser
 class ParserFactory(object):
 
     def new_parser(self):
+        parser = None
         try:
-            #parser = ArgParser()
-            parser = GetOptParser()
+            parser = ArgParser()
         except ImportError:
             parser = GetOptParser()
         finally:
@@ -35,10 +35,12 @@ class ParsedArgs(object):
 
 class ArgParser(object):
 
-    import argparse
-
     def __init__(self):
-        self.parser = self.argparse.ArgumentParser()
+	import argparse
+        if not argparse:
+            print 'Error in ArgParser. Unable to import argparse'
+            sys.exit(1)
+        self.parser = argparse.ArgumentParser()
         self.parser.add_argument('pdf_in', help="PDF input for analysis")
         self.parser.add_argument('-o', '--out', default='t-hash-'+time.strftime("%Y-%m-%d_%H-%M-%S")+'.txt', help="Analysis output filename or type. Default to timestamped file in CWD. Options: 'db'||'stdout'||[filename]")
         self.parser.add_argument('-d', '--debug', action='store_true', default=False, help="Print debugging messages")
@@ -103,27 +105,41 @@ class Hasher(multiprocessing.Process):
     '''
     Hashers generally make hashes of things
     '''
-    def __init__(self, qin, qout, counter):
+    def __init__(self, qin, qout, counter, io_lock):
         multiprocessing.Process.__init__(self)
         self.qin = qin
         self.qout = qout
         self.counter = counter
+        self.io_lock = io_lock
 
     def run(self):
         while True:
             pdf = self.qin.get()
             if not pdf:
                 break
-            parsed_pdf = self.parse_pdf(pdf)
-            t_hash, t_str = self.get_tree_hash(parsed_pdf)
-            js = self.get_js(parsed_pdf)
             pdf_name = pdf.rstrip(os.path.sep).rpartition(os.path.sep)[2]
+            rv, parsed_pdf = self.parse_pdf(pdf)
+	    if not rv:
+                self.io_lock.acquire()
+                sys.stderr.write("\npeepdf error with file: %s\n%s\n" % (pdf_name, parsed_pdf))
+                self.io_lock.release()
+                js = ''
+                t_hash = ''
+                t_str = parsed_pdf
+            else:
+                t_hash, t_str = self.get_tree_hash(parsed_pdf)
+                js = self.get_js(parsed_pdf)
             self.qout.put( (pdf_name, t_hash, t_str, js) )
             self.counter.inc()
 
     def parse_pdf(self, pdf):
-        retval, pdffile = PDFParser().parse(pdf, forceMode=True, manualAnalysis=True)
-        return pdffile
+        retval = True
+	try:
+            _, pdffile = PDFParser().parse(pdf, forceMode=True, manualAnalysis=True)
+        except Exception as e:
+            retval = False
+            pdffile = repr(e)
+        return retval, pdffile
 
     def get_js(self, pdf):
         js = ''
@@ -136,7 +152,11 @@ class Hasher(multiprocessing.Process):
 
     def get_tree_hash(self, pdf):
         tree_string = self.do_tree(pdf)
-        tree_hash = md5.new(tree_string).hexdigest()
+        m = hashlib.md5()
+        m.update(tree_string)
+	tree_hash = m.hexdigest()
+	if not tree_string:
+            tree_string = 'Empty tree. Hash on empty string.'
         return tree_hash, tree_string
 
     def do_js_code(self, obj_id, pdf):
@@ -208,11 +228,12 @@ class Stasher(multiprocessing.Process):
     Stashers are the ant from the ant and the grashopper fable. They save
     things up for winter in persistent storage.
     '''
-    def __init__(self, qin, storage, counter):
+    def __init__(self, qin, storage, counter, io_lock):
         multiprocessing.Process.__init__(self)
         self.qin = qin
         self.storage = StorageFactory().new_storage(storage)
         self.counter = counter
+	self.io_lock = io_lock
 
     def run(self):
         self.storage.open()
@@ -313,33 +334,39 @@ class Counter(object):
 
 class ProgressBar(object):
 
-    def __init__(self, counter, max_cnt):
+    def __init__(self, counter, max_cnt, io_lock):
         self.counter = counter
         self.max_cnt = max_cnt
+        self.io_lock = io_lock
 
     def display(self):
         cnt = self.counter.value()
         while cnt < self.max_cnt:
             progress = cnt * 1.0 / self.max_cnt * 100
+            self.io_lock.acquire()
             sys.stdout.write('Approx progress: %.2f%%\r' % progress)
             sys.stdout.flush()
+            self.io_lock.release()
             cnt = self.counter.value()
         progress = cnt * 1.0 / self.max_cnt * 100
-        sys.stdout.write('Approx progress: %.2f%% ' % progress)
+        self.io_lock.acquire()
+        sys.stdout.write('Approx progress: %.2f%%\n' % progress)
+        self.io_lock.release()
 
 if __name__ == '__main__':
     pdfs = []
     args = ParserFactory().new_parser().parse()
 
-    num_procs = multiprocessing.cpu_count() - 1
+    io_lock = multiprocessing.Lock()
+    num_procs = multiprocessing.cpu_count()/2 - 1
     jobs = multiprocessing.Queue()
     results = multiprocessing.Queue()
 
     job_counter = Counter()
     result_counter = Counter()
 
-    hashers = [ Hasher(jobs, results, job_counter) for cnt in xrange(num_procs) ]
-    stasher = Stasher(results, args.out, result_counter)
+    hashers = [ Hasher(jobs, results, job_counter, io_lock) for cnt in xrange(num_procs) ]
+    stasher = Stasher(results, args.out, result_counter, io_lock)
 
 
     if os.path.isdir(args.pdf_in):
@@ -360,14 +387,17 @@ if __name__ == '__main__':
     for hasher in hashers:
         hasher.start()
     stasher.start()
-    
+
+    true_cnt = 0
     for pdf in pdfs:
-        jobs.put(pdf)
+        if os.path.isfile(pdf):
+	   jobs.put(pdf)
+           true_cnt += 1
     for proc in xrange(num_procs):
         jobs.put(None)
     print 'Samples added to job queue'
 
-    progress = ProgressBar(job_counter, len(pdfs))
+    progress = ProgressBar(job_counter, true_cnt, io_lock)
     progress.display()
 
     for hasher in hashers:
@@ -376,7 +406,7 @@ if __name__ == '__main__':
 
     results.put(None) 
 
-    progress = ProgressBar(result_counter, len(pdfs))
+    progress = ProgressBar(result_counter, true_cnt, io_lock)
     progress.display()
 
     stasher.join()
