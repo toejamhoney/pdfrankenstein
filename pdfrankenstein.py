@@ -5,6 +5,7 @@ import glob
 import time
 import getopt
 import hashlib
+import traceback
 import multiprocessing
 
 from  peepdf.PDFCore import PDFParser
@@ -138,7 +139,7 @@ class Hasher(multiprocessing.Process):
             _, pdffile = PDFParser().parse(pdf, forceMode=True, manualAnalysis=True)
         except Exception as e:
             retval = False
-            pdffile = repr(e)
+            pdffile = '\n'.join([traceback.format_exc(), repr(e)])
         return retval, pdffile
 
     def get_js(self, pdf):
@@ -341,16 +342,18 @@ class ProgressBar(object):
 
     def display(self):
         cnt = self.counter.value()
+
         while cnt < self.max_cnt:
             progress = cnt * 1.0 / self.max_cnt * 100
             self.io_lock.acquire()
-            sys.stdout.write('Approx progress: %.2f%%\r' % progress)
+            sys.stdout.write('Approx progress: %d of %d\t%.2f%%\r' % (cnt, self.max_cnt, progress))
             sys.stdout.flush()
             self.io_lock.release()
             cnt = self.counter.value()
+
         progress = cnt * 1.0 / self.max_cnt * 100
         self.io_lock.acquire()
-        sys.stdout.write('Approx progress: %.2f%%\n' % progress)
+        sys.stdout.write('Approx progress: %d of %d\t%.2f%%\n' % (cnt, self.max_cnt, progress))
         self.io_lock.release()
 
 if __name__ == '__main__':
@@ -367,7 +370,6 @@ if __name__ == '__main__':
 
     hashers = [ Hasher(jobs, results, job_counter, io_lock) for cnt in xrange(num_procs) ]
     stasher = Stasher(results, args.out, result_counter, io_lock)
-
 
     if os.path.isdir(args.pdf_in):
         dir_name = os.path.join(args.pdf_in, '*')
@@ -395,19 +397,21 @@ if __name__ == '__main__':
            true_cnt += 1
     for proc in xrange(num_procs):
         jobs.put(None)
-    print 'Samples added to job queue'
+    print '%d samples added to job queue' % true_cnt
 
     progress = ProgressBar(job_counter, true_cnt, io_lock)
     progress.display()
 
+    print 'Collecting hashes...'
     for hasher in hashers:
-        hasher.join()
-    print 'Hashing complete'
+        hasher.join(0.25)
+    print 'Complete'
 
     results.put(None) 
 
     progress = ProgressBar(result_counter, true_cnt, io_lock)
     progress.display()
 
+    print 'Collecting output...'
     stasher.join()
-    print 'Output complete'
+    print 'Complete'
