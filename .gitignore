@@ -4,3 +4,6 @@
 *.pyc
 *.sqlite
 *.cfg
+*.pyc
+*.log
+*/*.pyc
