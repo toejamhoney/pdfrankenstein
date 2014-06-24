@@ -151,7 +151,6 @@ class Hasher(multiprocessing.Process):
                     stream_ident = obj.object.decodedStream[:3]
                     if stream_ident in ['CWS', 'FWS']:
                         swf += obj.object.decodedStream.strip()
-                        print swf
         return swf
 
     def get_js(self, pdf):
@@ -286,7 +285,7 @@ class DbStorage(Storage):
     
     from db_mgmt import DBGateway
     table = 'parsed_pdfs'
-    cols = ( 'pdfmd5', 'treemd5', 'tree', 'javascript' )
+    cols = ( 'pdfmd5', 'treemd5', 'tree', 'javascript', 'swf' )
     primary = 'pdfmd5'
     
     def __init__(self):
