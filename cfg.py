@@ -26,9 +26,10 @@ class Config(object):
         self.parser.set('database', 'db', 'frankenstein.sqlite')
         with open(DEFAULT_CFG, 'w') as new_cfg:
             print 'Creating new config file in CWD:', DEFAULT_CFG
-            print 'Please double check the default values:'
+            print 'Please double check the default values before running again:'
             print self
             self.parser.write(new_cfg)
+        sys.exit(0)
 
     def setting(self, section='', option=''):
         if section and self.parser.has_option(section, option):

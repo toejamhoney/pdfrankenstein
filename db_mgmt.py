@@ -21,6 +21,7 @@ class DBGateway(object):
         db_path = os.path.join(self.db_dir, self.db_name)
         print 'Using:', db_path
         self.db_conn = sqlite3.connect(db_path)
+        self.db_conn.text_factory = str
         self.db_curr = self.db_conn.cursor()
 
     def attach(self, db_name):
@@ -87,6 +88,11 @@ class DBGateway(object):
     def select(self, table, **kwargs):
         pass
 
+    def count(self, table):
+        cmd = "SELECT COUNT (*) FROM " + table
+        self.db_curr.execute(cmd)
+        return self.db_curr.fetchone()[0]
+
     def update(self, **kwargs):
         kwargs = self.format_args(**kwargs)
         cmd = 'UPDATE :table SET :col = :val WHERE :key = :kval'
@@ -96,9 +102,13 @@ class DBGateway(object):
     def delete(self, *ids):
         pass
 
-    def dump(self):
+    def dump(self, n=0):
         print ':MEMORY DB DUMP:'
+	cnt = 0
         for val in self.db_conn.iterdump():
+            cnt += 1
+            if n > 0 and cnt >= n:
+		break
             print val
         print ':MEMORY DB DUMP END:'
 
@@ -106,8 +116,8 @@ class DBGateway(object):
 if __name__ == "__main__":
     import threading
     num_threads = 10
-
-    gw = DBGateway('test')
+    gw = DBGateway(sys.argv[1])
+    print gw.count('parsed_pdfs')
     '''
     table = 'test_table'
 
@@ -145,7 +155,6 @@ if __name__ == "__main__":
         gw.create_table(table, **kwargs)
     except Exception as error:
         print repr(error)
-    '''
 
     print '-'*20, 'Test Threads', '-'*20
     table = 'thread_table'
@@ -169,4 +178,4 @@ if __name__ == "__main__":
     for thread in threads:
         thread.join()
 
-    gw.dump()
+    '''
