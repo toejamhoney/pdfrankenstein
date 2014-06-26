@@ -7,8 +7,12 @@ import getopt
 import hashlib
 import traceback
 import multiprocessing
+from Queue import Full, Empty
 
 from  peepdf.PDFCore import PDFParser
+
+LOCK = multiprocessing.Lock()
+STORAGE_LOCK = multiprocessing.Lock()
 
 class ParserFactory(object):
 
@@ -105,34 +109,60 @@ class GetOptParser(object):
 class Hasher(multiprocessing.Process):
     '''
     Hashers generally make hashes of things
+    def __init__(self, qin, storage, counter):
+        multiprocessing.Process.__init__(self)
+        self.qin = qin
+        self.storage = StorageFactory().new_storage(storage)
+        self.counter = counter
+
+    def run(self):
+        self.storage.open()
+        proceed = True
+        while proceed:
+            t_hash = self.qin.get()
+            if not t_hash:
+                write('\nStasher: kill msg recvd\n')
+                proceed = False
+            else:
+                self.storage.store(t_hash)
+                self.counter.inc()
+            self.qin.task_done()
+        self.storage.close()
+        write('\nStasher: Storage closed. Exiting.\n')
     '''
-    def __init__(self, qin, qout, counter, io_lock):
+    def __init__(self, qin, qout, counter, storage):
         multiprocessing.Process.__init__(self)
         self.qin = qin
         self.qout = qout
         self.counter = counter
-        self.io_lock = io_lock
+        #self.storage = StorageFactory().new_storage(storage)
 
     def run(self):
+        #self.storage.open()
         while True:
             pdf = self.qin.get()
+
             if not pdf:
-                break
+                self.qin.task_done()
+                return 0
+
             pdf_name = pdf.rstrip(os.path.sep).rpartition(os.path.sep)[2]
             rv, parsed_pdf = self.parse_pdf(pdf)
-	    if not rv:
-                self.io_lock.acquire()
-                sys.stderr.write("\npeepdf error with file: %s\n%s\n" % (pdf_name, parsed_pdf))
-                self.io_lock.release()
+
+            if not rv:
                 js = ''
                 t_hash = ''
                 t_str = parsed_pdf
             else:
                 t_hash, t_str = self.get_tree_hash(parsed_pdf)
-                js = self.get_js(parsed_pdf)
-                swf = self.get_swf(parsed_pdf)
-            self.qout.put( (pdf_name, t_hash, t_str, js) )
+                jscript = self.get_js(parsed_pdf)
+                swflash = self.get_swf(parsed_pdf)
+
+            self.qout.put({'pdf_md5':pdf_name, 'tree_md5':t_hash, 'tree':t_str, 'obf_js':jscript, 'swf':swflash})
+            #self.storage.store( (pdf_name, t_hash, t_str, js, swf) )
             self.counter.inc()
+            self.qin.task_done()
+        #self.storage.close()
 
     def parse_pdf(self, pdf):
         retval = True
@@ -238,22 +268,26 @@ class Stasher(multiprocessing.Process):
     Stashers are the ant from the ant and the grashopper fable. They save
     things up for winter in persistent storage.
     '''
-    def __init__(self, qin, storage, counter, io_lock):
+    def __init__(self, qin, storage, counter):
         multiprocessing.Process.__init__(self)
         self.qin = qin
         self.storage = StorageFactory().new_storage(storage)
         self.counter = counter
-	self.io_lock = io_lock
 
     def run(self):
         self.storage.open()
-        while True:
+        proceed = True
+        while proceed:
             t_hash = self.qin.get()
             if not t_hash:
-                break
-            self.storage.store(t_hash)
-            self.counter.inc()
+                write('\nStasher: kill msg recvd\n')
+                proceed = False
+            else:
+                self.storage.store(t_hash)
+                self.counter.inc()
+            self.qin.task_done()
         self.storage.close()
+        write('\nStasher: Storage closed. Exiting.\n')
 
 
 class StorageFactory(object):
@@ -285,8 +319,8 @@ class DbStorage(Storage):
     
     from db_mgmt import DBGateway
     table = 'parsed_pdfs'
-    cols = ( 'pdfmd5', 'treemd5', 'tree', 'javascript', 'swf' )
-    primary = 'pdfmd5'
+    cols = ( 'pdf_md5', 'tree_md5', 'tree', 'graph', 'obf_js', 'deobf_js', 'swf', 'abc', 'actionscript', 'shellcode', 'bin_blob' )
+    primary = 'pdf_md5'
     
     def __init__(self):
         self.db = self.DBGateway()
@@ -295,10 +329,18 @@ class DbStorage(Storage):
         self.db.create_table(self.table, cols=[ ' '.join([col, 'TEXT']) for col in self.cols], primary=self.primary)
 
     def store(self, data_list):
+        data_list = self.align_kwargs(data_list)
         self.db.insert(self.table, cols=self.cols, vals=data_list)
     
     def close(self):
         self.db.disconnect()
+
+    def align_kwargs(self, data):
+        aligned = []
+        for col in self.cols:
+            aligned.append(data.get(col, ''))
+        return tuple(aligned)
+
 
 class FileStorage(Storage):
 
@@ -329,9 +371,12 @@ class FileStorage(Storage):
 
 class Counter(object):
 
-    def __init__(self):
+    def __init__(self, soft_max, name='Untitled'):
         self.counter = multiprocessing.RawValue('i', 0)
+        self.hard_max = multiprocessing.RawValue('i', 0)
+        self.soft_max = soft_max
         self.lock = multiprocessing.Lock()
+        self.name = name
 
     def inc(self):
         with self.lock:
@@ -340,45 +385,113 @@ class Counter(object):
     def value(self):
         with self.lock:
             return self.counter.value
+    
+    def complete(self):
+        with self.lock:
+            if self.hard_max > 0:
+                return self.counter.value == self.hard_max.value
+
+    def ceil(self):
+        return self.hard_max.value
 
 
-class ProgressBar(object):
+class Jobber(multiprocessing.Process):
 
-    def __init__(self, counter, max_cnt, io_lock):
-        self.counter = counter
-        self.max_cnt = max_cnt
+    def __init__(self, job_list, job_qu, validator, counters, num_procs):
+        multiprocessing.Process.__init__(self)
+        self.jobs = job_list
+        self.qu = job_qu
+        self.qu.cancel_join_thread()
+        self.counters = counters
+        self.validator = validator
+        self.num_procs = num_procs
+
+    def run(self):
+        write("Jobber started\n")
+        job_cnt = 0
+        for job in self.jobs:
+            if self.validator.valid(job):
+                self.qu.put(job)
+                job_cnt += 1
+        for n in range(self.num_procs):
+            self.qu.put(None)
+        for counter in self.counters:
+            counter.hard_max.value = job_cnt
+        write("Job queues complete. Counters set.\n")
+
+
+class ProgressBar(multiprocessing.Process):
+
+    def __init__(self, counters, io_lock, qu):
+        multiprocessing.Process.__init__(self)
+        self.counters = counters
         self.io_lock = io_lock
+        self.msg_qu = qu
 
-    def display(self):
-        cnt = self.counter.value()
-
-        while cnt < self.max_cnt:
-            progress = cnt * 1.0 / self.max_cnt * 100
+    def run(self):
+        while any(not counter.ceil() for counter in self.counters):
             self.io_lock.acquire()
-            sys.stdout.write('Approx progress: %d of %d\t%.2f%%\r' % (cnt, self.max_cnt, progress))
+            sys.stdout.write('Filling job queues. \ \r')
+            sys.stdout.flush()
+            time.sleep(.1)
+            sys.stdout.write('Filling job queues. | \r')
+            sys.stdout.flush()
+            time.sleep(.1)
+            sys.stdout.write('Filling job queues. / \r')
+            sys.stdout.flush()
+            time.sleep(.1)
+            sys.stdout.write('Filling job queues. - \r')
+            sys.stdout.flush()
+            time.sleep(.1)
             sys.stdout.flush()
             self.io_lock.release()
-            cnt = self.counter.value()
+        while any(not c.complete() for c in self.counters):
+            time.sleep(.1)
+            for counter in self.counters:
+                self.progress(counter)
+            self.check_msgs()
+            write('\r')
+        write('\n')
 
-        progress = cnt * 1.0 / self.max_cnt * 100
-        self.io_lock.acquire()
-        sys.stdout.write('Approx progress: %d of %d\t%.2f%%\n' % (cnt, self.max_cnt, progress))
-        self.io_lock.release()
+    def progress(self, counter):
+        cnt = counter.value()
+        ceil = counter.ceil()
+        prct = cnt * 1.0 / ceil * 100
+        write('[%s: %07d of %07d %03.02f%%]\t' % (counter.name, cnt, counter.ceil(), prct))
+
+    def check_msgs(self):
+        rv = True
+        if not self.msg_qu.empty():
+            msg = self.msg_qu.get()
+            if not msg:
+                rv = False
+            else:
+                sys.stdout.write('<MSG: %s>' % msg)
+            self.msg_qu.task_done()
+        return rv
+
+
+class Validator(object):
+
+    def valid(self, obj):
+        pass
+
+class FileValidator(Validator):
+
+    def valid(self, fname):
+        return os.path.isfile(fname)
+
+def write(msg):
+    with LOCK:
+        sys.stdout.write(msg)
+        sys.stdout.flush()
 
 if __name__ == '__main__':
     pdfs = []
     args = ParserFactory().new_parser().parse()
-
-    io_lock = multiprocessing.Lock()
     num_procs = multiprocessing.cpu_count()/2 - 1
-    jobs = multiprocessing.Queue()
-    results = multiprocessing.Queue()
-
-    job_counter = Counter()
-    result_counter = Counter()
-
-    hashers = [ Hasher(jobs, results, job_counter, io_lock) for cnt in xrange(num_procs) ]
-    stasher = Stasher(results, args.out, result_counter, io_lock)
+    #num_procs = multiprocessing.cpu_count() - 2
+    mgr = multiprocessing.Manager()
 
     if os.path.isdir(args.pdf_in):
         dir_name = os.path.join(args.pdf_in, '*')
@@ -390,37 +503,33 @@ if __name__ == '__main__':
     else:
         print 'Unable to find PDF file/directory:', args.pdf_in
         sys.exit(1)
-
     if not len(pdfs) > 0:
         print 'Empty sample set'
         sys.exit(0)
 
+    io_lock = multiprocessing.Lock()
+    jobs = multiprocessing.JoinableQueue()
+    results = multiprocessing.JoinableQueue()
+    msgs = multiprocessing.JoinableQueue()
+    job_validator = FileValidator()
+    job_counter = Counter(len(pdfs), 'Hashed')
+    result_counter = Counter(len(pdfs), 'Stored')
+    counters = [job_counter, result_counter]
+
+    hashers = [ Hasher(jobs, results, job_counter, args.out) for cnt in range(num_procs) ]
+    stasher = Stasher(results, args.out, result_counter)
+    jobber = Jobber(pdfs, jobs, job_validator, counters, num_procs)
+    progress = ProgressBar(counters, LOCK, msgs)
+
+    write("Starting processes...\n")
+    jobber.start()
+    stasher.start()
     for hasher in hashers:
         hasher.start()
-    stasher.start()
+    progress.start()
 
-    true_cnt = 0
-    for pdf in pdfs:
-        if os.path.isfile(pdf):
-	   jobs.put(pdf)
-           true_cnt += 1
-    for proc in xrange(num_procs):
-        jobs.put(None)
-    print '%d samples added to job queue' % true_cnt
+    jobs.join()
+    results.join()
 
-    progress = ProgressBar(job_counter, true_cnt, io_lock)
-    progress.display()
-
-    print 'Collecting hashes...'
-    for hasher in hashers:
-        hasher.join(0.25)
-    print 'Complete'
-
-    results.put(None) 
-
-    progress = ProgressBar(result_counter, true_cnt, io_lock)
-    progress.display()
-
-    print 'Collecting output...'
-    stasher.join()
-    print 'Complete'
+    time.sleep(1)
+    results.put(None)

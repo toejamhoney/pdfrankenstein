@@ -45,6 +45,7 @@ class DBGateway(object):
                 self.db_curr.execute(cmd)
             except sqlite3.OperationalError as error:
                 print 'Invalid operation in database gateway:', error
+                print 'Occurred during cmd:', cmd
                 raise error
             else:
                 self.db_conn.commit()
