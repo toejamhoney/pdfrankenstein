@@ -89,7 +89,7 @@ class DBGateway(object):
     def select(self, cmd_str):
         cmd = 'SELECT %s' % cmd_str
         self.db_curr.execute(cmd)
-        return self.db_curr.fetchall()
+        return self.db_curr
 
     def count(self, table):
         cmd = "SELECT COUNT (*) FROM " + table
@@ -121,7 +121,7 @@ if __name__ == "__main__":
     num_threads = 10
     gw = DBGateway(sys.argv[1])
     print gw.count('parsed_pdfs')
-    errors = gw.select("pdfmd5, tree FROM parsed_pdfs WHERE treemd5='' or treemd5 is null")
+    errors = gw.select("pdf_md5, tree FROM parsed_pdfs WHERE tree_md5='' or tree_md5 is null")
     for err in errors:
         print err
     '''
