@@ -191,7 +191,10 @@ class Hasher(multiprocessing.Process):
         return js
 
     def get_tree_hash(self, pdf):
-        tree_string = self.do_tree(pdf)
+        try:
+	    tree_string = self.do_tree(pdf)
+        except Exception as e:
+            tree_string = 'ERROR: ' + repr(e) 
         m = hashlib.md5()
         m.update(tree_string)
 	tree_hash = m.hexdigest()
